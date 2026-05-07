@@ -1,0 +1,32 @@
+{
+  "name": "proxyhub",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "concurrently -n tsc,main,admin -c blue,green,yellow \"tsc --watch\" \"cross-env PORT=3000 nodemon --watch gen --ext js ./gen/srv/app.js\" \"cross-env PORT=3001 nodemon --watch gen --ext js ./gen/srv/app.js\"",
+    "main": "concurrently \"tsc --watch\" \"cross-env PORT=3000 nodemon --watch gen --ext js ./gen/srv/app.js\"",
+    "admin": "concurrently \"tsc --watch\" \"cross-env PORT=3001 nodemon --watch gen --ext js ./gen/srv/app.js\""
+  },
+  "dependencies": {
+    "axios": "^1.4.0",
+    "chalk": "^5.4.1",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.1",
+    "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.13",
+    "cross-env": "^7.0.3",
+    "@types/node": "^18.0.0",
+    "concurrently": "^9.1.2",
+    "nodemon": "^3.1.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^4.7.4"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

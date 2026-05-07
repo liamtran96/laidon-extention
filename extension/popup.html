@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ProxyHub Connector</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 13px;
+        width: 320px;
+        background: #0f1117;
+        color: #e2e8f0;
+      }
+
+      header {
+        padding: 12px 14px 10px;
+        border-bottom: 1px solid #1e2230;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      header h1 {
+        font-size: 14px;
+        font-weight: 600;
+        color: #fff;
+        letter-spacing: 0.3px;
+      }
+
+      header .badge {
+        margin-left: auto;
+        font-size: 11px;
+        color: #64748b;
+      }
+
+      section { padding: 10px 14px; }
+
+      .mapping-list { display: flex; flex-direction: column; gap: 6px; }
+
+      .mapping-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: #1a1f2e;
+        border: 1px solid #1e2230;
+        border-radius: 6px;
+        padding: 7px 10px;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: #334155;
+      }
+      .dot.online { background: #22c55e; }
+      .dot.offline { background: #ef4444; }
+
+      .mapping-info { flex: 1; min-width: 0; }
+      .mapping-domain {
+        font-size: 12px;
+        font-weight: 500;
+        color: #cbd5e1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .mapping-port { font-size: 11px; color: #475569; margin-top: 1px; }
+
+      .btn-icon {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: #475569;
+        padding: 3px 5px;
+        border-radius: 4px;
+        font-size: 13px;
+        line-height: 1;
+        transition: color 0.15s, background 0.15s;
+      }
+      .btn-icon:hover { background: #1e2a3a; color: #94a3b8; }
+      .btn-icon.recapture:hover { color: #38bdf8; }
+      .btn-icon.delete:hover { color: #f87171; }
+
+      .empty {
+        color: #475569;
+        font-size: 12px;
+        text-align: center;
+        padding: 14px 0 6px;
+      }
+
+      .divider {
+        border: none;
+        border-top: 1px solid #1e2230;
+        margin: 4px 0;
+      }
+
+      .add-form { display: flex; flex-direction: column; gap: 7px; }
+
+      .add-form label {
+        font-size: 11px;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 2px;
+        display: block;
+      }
+
+      .add-form input, .add-form select {
+        width: 100%;
+        background: #1a1f2e;
+        border: 1px solid #1e2230;
+        border-radius: 5px;
+        padding: 6px 8px;
+        color: #e2e8f0;
+        font-size: 12px;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+      .add-form input:focus, .add-form select:focus {
+        border-color: #3b82f6;
+      }
+      .add-form select option { background: #1a1f2e; }
+
+      .row { display: flex; gap: 7px; }
+      .row > * { flex: 1; }
+
+      .btn-add {
+        width: 100%;
+        padding: 7px;
+        background: #2563eb;
+        border: none;
+        border-radius: 5px;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .btn-add:hover { background: #1d4ed8; }
+
+      .toast {
+        font-size: 11px;
+        color: #22c55e;
+        text-align: center;
+        min-height: 16px;
+        margin-top: 2px;
+      }
+      .toast.error { color: #f87171; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>ProxyHub Connector</h1>
+      <span class="badge" id="count">0 mappings</span>
+    </header>
+
+    <section>
+      <div class="mapping-list" id="mappingList">
+        <p class="empty">No mappings yet. Add one below.</p>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <section>
+      <div class="add-form">
+        <div class="row">
+          <div>
+            <label>Domain / path</label>
+            <input id="domainInput" type="text" placeholder="e.g. my-app.hana.ondemand.com/admin" />
+          </div>
+          <div>
+            <label>Proxy port</label>
+            <select id="portSelect">
+              <option value="3000">3000 (main)</option>
+              <option value="3001">3001 (admin)</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn-add" id="addBtn">Add mapping</button>
+        <div class="toast" id="toast"></div>
+      </div>
+    </section>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
