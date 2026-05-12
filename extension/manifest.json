@@ -5,7 +5,9 @@
   "description": "Auto-captures session headers from target domains and sends them to local proxyhub",
   "permissions": [
     "webRequest",
-    "storage"
+    "storage",
+    "alarms",
+    "webNavigation"
   ],
   "host_permissions": [
     "<all_urls>"

@@ -1,11 +1,53 @@
 const api = typeof browser !== "undefined" ? browser : chrome;
 
-// Chrome needs extraHeaders to access cookies; Firefox rejects the value.
+// Chromium (Chrome, Edge) needs `extraHeaders` to expose Cookie/Authorization
+// headers; Firefox rejects the value. Edge defines `browser` as an alias to
+// `chrome`, so we can't use the presence of `browser` to detect Firefox —
+// only Firefox exposes `runtime.getBrowserInfo`.
+const isFirefox =
+  typeof browser !== "undefined" &&
+  browser.runtime &&
+  typeof browser.runtime.getBrowserInfo === "function";
 const extraInfo = ["requestHeaders"];
-if (typeof browser === "undefined") extraInfo.push("extraHeaders");
+if (!isFirefox) extraInfo.push("extraHeaders");
+
+// Chrome MV3 kills the service worker after ~30s idle and is unreliable about
+// waking it for webRequest events. A short-period alarm keeps it warm.
+if (api.alarms) {
+  api.alarms.create("keepAlive", { periodInMinutes: 0.4 });
+  api.alarms.onAlarm.addListener(() => {});
+}
+
+// Track each tab's top-level URL. SAP UI5 (and other apps) set
+// Referrer-Policy: no-referrer on fetches, so the request's Referer header is
+// empty — but we still need to know which page made the request so we can
+// match a mapping's pathPrefix.
+const tabUrls = {};
+if (api.webNavigation) {
+  api.webNavigation.onCommitted.addListener((d) => {
+    if (d.frameId === 0) tabUrls[d.tabId] = d.url;
+  });
+}
+if (api.tabs && api.tabs.onRemoved) {
+  api.tabs.onRemoved.addListener((tabId) => {
+    delete tabUrls[tabId];
+  });
+}
 
 let cachedMappings = [];
 let sortedMappings = [];
+
+const lastSent = {};
+const lastSentSig = {};
+const THROTTLE_MS = 10 * 60 * 1000;
+
+function headerSignature(headers) {
+  return (
+    (headers["cookie"] || "") +
+    "|" + (headers["x-csrf-token"] || "") +
+    "|" + (headers["authorization"] || "")
+  );
+}
 
 function updateMappings(next) {
   cachedMappings = next || [];
@@ -15,7 +57,10 @@ function updateMappings(next) {
   );
   const valid = new Set(cachedMappings.map((m) => m.key || m.domain));
   for (const k of Object.keys(lastSent)) {
-    if (!valid.has(k)) delete lastSent[k];
+    if (!valid.has(k)) {
+      delete lastSent[k];
+      delete lastSentSig[k];
+    }
   }
 }
 
@@ -26,20 +71,22 @@ api.storage.onChanged.addListener((changes) => {
   if (changes.mappings) updateMappings(changes.mappings.newValue);
 });
 
-const lastSent = {};
-const THROTTLE_MS = 10 * 60 * 1000;
-
-function shouldSend(domain) {
+// Returns true and reserves the throttle slot if we should send. A changed
+// signature (new cookie or CSRF token) bypasses the time window so the proxy
+// gets fresh headers immediately.
+function reserveSend(domain, sig) {
   const now = Date.now();
-  if (!lastSent[domain] || now - lastSent[domain] > THROTTLE_MS) {
-    lastSent[domain] = now;
-    return true;
-  }
-  return false;
+  const stale = !lastSent[domain] || now - lastSent[domain] > THROTTLE_MS;
+  const changed = lastSentSig[domain] !== sig;
+  if (!stale && !changed) return false;
+  lastSent[domain] = now;
+  lastSentSig[domain] = sig;
+  return { changed };
 }
 
 function resetThrottle(domain) {
   delete lastSent[domain];
+  delete lastSentSig[domain];
 }
 
 api.runtime.onMessage.addListener((msg) => {
@@ -49,9 +96,11 @@ api.runtime.onMessage.addListener((msg) => {
   }
 });
 
+const CAPTURABLE_TYPES = new Set(["xmlhttprequest", "other", "ping"]);
+
 api.webRequest.onSendHeaders.addListener(
   (details) => {
-    if (details.type !== "xmlhttprequest") return;
+    if (!CAPTURABLE_TYPES.has(details.type)) return;
 
     let reqUrl;
     try {
@@ -65,14 +114,16 @@ api.webRequest.onSendHeaders.addListener(
       headers[h.name.toLowerCase()] = h.value;
     }
     const referer = headers["referer"] || "";
+    // Fall back to the tab's top-level URL when Referer is suppressed by policy.
+    const pageUrl = referer || tabUrls[details.tabId] || "";
 
-    // Path prefix is matched against the Referer (the page that made the request),
+    // Path prefix is matched against the page URL (the page that made the request),
     // not the request URL itself — API calls go to /sap/odata/... not /admin/...
     const mapping = sortedMappings.find((m) => {
       const domainMatch =
         reqUrl.hostname === m.domain || reqUrl.hostname.endsWith("." + m.domain);
       if (!domainMatch) return false;
-      if (m.pathPrefix) return referer.includes(m.domain + m.pathPrefix);
+      if (m.pathPrefix) return pageUrl.includes(m.domain + m.pathPrefix);
       return true;
     });
     if (!mapping) return;
@@ -80,13 +131,16 @@ api.webRequest.onSendHeaders.addListener(
     const mappingKey = mapping.key || mapping.domain;
     console.log("[ProxyHub] matched →", mappingKey, "port", mapping.port);
 
-    if (!shouldSend(mappingKey)) {
-      console.log("[ProxyHub] throttled, skipping", mappingKey);
+    // Check auth headers BEFORE consuming the throttle window — a request without
+    // cookies would otherwise block valid requests for the next 10 minutes.
+    if (!headers["cookie"] && !headers["authorization"]) {
+      console.log("[ProxyHub] no cookie/auth header, skipping");
       return;
     }
 
-    if (!headers["cookie"] && !headers["authorization"]) {
-      console.log("[ProxyHub] no cookie/auth header, skipping");
+    const reservation = reserveSend(mappingKey, headerSignature(headers));
+    if (!reservation) {
+      console.log("[ProxyHub] throttled, skipping", mappingKey);
       return;
     }
 
@@ -98,7 +152,7 @@ api.webRequest.onSendHeaders.addListener(
       .then((r) => r.json())
       .then((data) => {
         if (data.ok) {
-          console.log(`[ProxyHub] ✓ Auto-configured port ${mapping.port} for ${mappingKey}`);
+          console.log(`[ProxyHub] ✓ Auto-configured port ${mapping.port} for ${mappingKey}${reservation.changed ? " (headers changed)" : ""}`);
         } else {
           console.log("[ProxyHub] proxy responded with error:", data);
         }
